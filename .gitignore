@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.local
+.vscode
+.idea
+*.db
+node_modules/
+backend/.venv/
+backend/static/uploads/
+venv/
+.venv_test/
+frontend/.turbo/
+.next/

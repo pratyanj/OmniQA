@@ -1,0 +1,313 @@
+# ==============================================================================
+# 🐛 IT Sector Bug Tracker — API Integration & Edge Cases Testing Script
+# ==============================================================================
+# Compatible with VS Code "REST Client" extension.
+# Install the extension, select a request, and click "Send Request" above the block.
+# Ensure the FastAPI backend server is running locally on http://localhost:8000 first!
+# ==============================================================================
+
+@baseUrl = http://localhost:8000/api/v1
+
+### ----------------------------------------------------------------------------
+# 1. 🔐 AUTHENTICATION & LOGIN ENDPOINTS
+### ----------------------------------------------------------------------------
+
+# @name loginArjunQA
+# SUCCESS: Log in as Arjun Sharma (QA Lead) to acquire bearer token
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "arjun.sharma@company.com",
+  "password": "password123"
+}
+
+###
+
+# Save Arjun's access token dynamically from the login response
+@arjunToken = {{loginArjunQA.response.body.access_token}}
+@arjunUserId = {{loginArjunQA.response.body.user.id}}
+
+###
+
+# @name loginRohanDev
+# SUCCESS: Log in as Rohan Verma (Developer)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "rohan.verma@company.com",
+  "password": "password123"
+}
+
+###
+
+# Save Rohan's access token dynamically
+@rohanToken = {{loginRohanDev.response.body.access_token}}
+
+###
+
+# SUCCESS: Fetch the profile of current active user using bearer token
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{arjunToken}}
+
+###
+
+# EDGE CASE: Access profile with an invalid/expired token (Should return 401 Unauthorized)
+GET {{baseUrl}}/auth/me
+Authorization: Bearer invalid_or_expired_jwt_token_claims_xyz
+
+###
+
+# EDGE CASE: Access profile without any token in headers (Should return 401 Unauthorized)
+GET {{baseUrl}}/auth/me
+
+###
+
+# EDGE CASE: Log in with wrong password parameter (Should return 400 Bad Request)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "arjun.sharma@company.com",
+  "password": "wrong_password_test_edge_case"
+}
+
+###
+
+# EDGE CASE: Log in with non-existent email account (Should return 400 Bad Request)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "ghost.user@company.com",
+  "password": "password123"
+}
+
+
+### ----------------------------------------------------------------------------
+# 2. 📦 PROJECTS ENDPOINTS
+### ----------------------------------------------------------------------------
+
+# SUCCESS: Retrieve all active software projects
+GET {{baseUrl}}/projects
+Authorization: Bearer {{arjunToken}}
+
+###
+
+# SUCCESS: Register a new software project (Returns 201 Created)
+# @name createProjectSuccess
+POST {{baseUrl}}/projects
+Authorization: Bearer {{arjunToken}}
+Content-Type: application/json
+
+{
+  "name": "Cloud Security Portal",
+  "description": "Enterprise secure shield portal mapping IAM roles and VPC logs",
+  "key": "SECURITY",
+  "icon": "🛡️"
+}
+
+###
+
+# Save the created project ID dynamically
+@newProjectId = {{createProjectSuccess.response.body.id}}
+
+###
+
+# EDGE CASE: Register a project with a duplicate key "SECURITY" (Should return 400 Bad Request)
+POST {{baseUrl}}/projects
+Authorization: Bearer {{arjunToken}}
+Content-Type: application/json
+
+{
+  "name": "Another Security App",
+  "description": "Will fail due to duplicate key constraint",
+  "key": "SECURITY",
+  "icon": "🔑"
+}
+
+
+### ----------------------------------------------------------------------------
+# 3. 🐛 BUGS & DEFECT WORKFLOW ENDPOINTS
+### ----------------------------------------------------------------------------
+
+# SUCCESS: Fetch all defects inside the database queue
+GET {{baseUrl}}/bugs
+Authorization: Bearer {{arjunToken}}
+
+###
+
+# SUCCESS: Filter defects by Project ID and multiple Status values
+GET {{baseUrl}}/bugs?projectId=p1&status=assigned&status=new
+Authorization: Bearer {{arjunToken}}
+
+###
+
+# SUCCESS: Search defects query index (Searches title, tags, description)
+GET {{baseUrl}}/bugs?search=Stripe
+Authorization: Bearer {{arjunToken}}
+
+###
+
+# SUCCESS: Sort defects by Severity in descending order (critical first)
+GET {{baseUrl}}/bugs?sortBy=severity&sortDir=desc
+Authorization: Bearer {{arjunToken}}
+
+###
+
+# @name createBugSuccess
+# SUCCESS: Log a new defect with steps, expected/actual results, and environment info (Returns 201 Created)
+POST {{baseUrl}}/bugs
+Authorization: Bearer {{arjunToken}}
+Content-Type: application/json
+
+{
+  "title": "OAuth gateway refreshes key expiration loops",
+  "projectId": "p1",
+  "severity": "high",
+  "priority": "p1",
+  "type": "security",
+  "environment": "staging",
+  "platform": "web",
+  "affectedVersion": "v1.4.5",
+  "description": "Auth headers fail to refresh cleanly when multiple asynchronous requests fire simultaneously. Recursion occurs.",
+  "stepsToReproduce": [
+    "Navigate to cloud dashboard console",
+    "Open 5 distinct tab streams concurrently",
+    "Let the session active claims token expire",
+    "Gateway goes into circular redirect loop"
+  ],
+  "expectedResult": "Single token refresh resolves cleanly and returns context to all concurrent tabs.",
+  "actualResult": "Tabs loop authentication requests leading to maximum stack overflow call depth.",
+  "tags": ["oauth", "gateway", "concurrency", "security"],
+  "deviceInfo": {
+    "browser": "Chrome 125.0",
+    "os": "Windows 11 Pro",
+    "appVersion": "v1.4.5",
+    "url": "/dashboard/telemetry",
+    "operatorName": "Arjun Sharma",
+    "deviceLogs": "Error: Maximum call stack size exceeded at Axios.refresh"
+  },
+  "developerInfo": {
+    "assignedTo": "u3",
+    "estimatedFixTime": "6 hours",
+    "branchName": "fix/oauth-tabs-collision"
+  },
+  "attachments": []
+}
+
+###
+
+# Save the newly created Bug ID dynamically
+@newBugId = {{createBugSuccess.response.body.id}}
+@newBugReadableId = {{createBugSuccess.response.body.bugId}}
+
+###
+
+# SUCCESS: Fetch specific bug details by UUID
+GET {{baseUrl}}/bugs/{{newBugId}}
+Authorization: Bearer {{arjunToken}}
+
+###
+
+# EDGE CASE: Fetch a bug details using a non-existent UUID (Should return 404 Not Found)
+GET {{baseUrl}}/bugs/99999999-9999-9999-9999-999999999999
+Authorization: Bearer {{arjunToken}}
+
+###
+
+# EDGE CASE: Log a bug with missing required 'title' field (Should return 422 Unprocessable Entity)
+POST {{baseUrl}}/bugs
+Authorization: Bearer {{arjunToken}}
+Content-Type: application/json
+
+{
+  "projectId": "p1",
+  "severity": "medium",
+  "priority": "p2"
+}
+
+###
+
+# SUCCESS: Reassign the bug to another developer (Simran Kaur - u4) (Spawns a local Notification print)
+POST {{baseUrl}}/bugs/{{newBugId}}/assign?assigneeId=u4
+Authorization: Bearer {{arjunToken}}
+
+###
+
+# SUCCESS: Transition status to "in_development"
+POST {{baseUrl}}/bugs/{{newBugId}}/status?newStatus=in_development
+Authorization: Bearer {{arjunToken}}
+
+###
+
+# SUCCESS: Transition status to "ready_for_qa"
+POST {{baseUrl}}/bugs/{{newBugId}}/status?newStatus=ready_for_qa&note=Rohan has completed development. Unit test passes.
+Authorization: Bearer {{rohanToken}}
+
+###
+
+# SUCCESS: QA Lead Arjun verifies the bug fix, providing version and build (Returns verified status and populates qa_verification JSON)
+POST {{baseUrl}}/bugs/{{newBugId}}/verify
+Authorization: Bearer {{arjunToken}}
+Content-Type: application/json
+
+{
+  "fixVersion": "v1.4.6",
+  "buildNumber": "BUILD-2026-0529",
+  "notes": "Verified under load testing with 50 parallel browser tabs. Auth interceptors work perfectly now."
+}
+
+###
+
+# SUCCESS: QA Lead Arjun decides to Reopen the bug for minor layout changes (Returns reopened status)
+POST {{baseUrl}}/bugs/{{newBugId}}/reopen
+Authorization: Bearer {{arjunToken}}
+Content-Type: application/json
+
+{
+  "reason": "Functional flow is solid, but auth loader spinner displays infinite loop on slow connections. Reopening to add loader timeout."
+}
+
+###
+
+# SUCCESS: Append a timeline comment to the ticket activity thread
+POST {{baseUrl}}/bugs/{{newBugId}}/comments
+Authorization: Bearer {{rohanToken}}
+Content-Type: application/json
+
+{
+  "text": "Acknowledged. I'll add a 5-second spinner timeout and fall back to a toast alert."
+}
+
+
+### ----------------------------------------------------------------------------
+# 4. 📎 ATTACHMENTS & SCREENSHOT PORTAL ENDPOINTS
+### ----------------------------------------------------------------------------
+
+# SUCCESS: Programmatic clipboard screenshot multipart upload (Returns fully-qualified absolute server URL)
+# Note: For REST Client, this simulates standard upload. We reference a dummy logo as a placeholder.
+POST {{baseUrl}}/attachments/upload
+Authorization: Bearer {{arjunToken}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="pasted_screenshot.png"
+Content-Type: image/png
+
+< ./app/config.py
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+###
+
+# EDGE CASE: Trigger attachment upload with an empty/invalid payload (Should return 422 Unprocessable Entity)
+POST {{baseUrl}}/attachments/upload
+Authorization: Bearer {{arjunToken}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename=""
+Content-Type: image/png
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
