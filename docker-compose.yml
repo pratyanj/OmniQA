@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      - sqlite-data:/app  # Persist the SQLite database file
+      - uploads-data:/app/static/uploads  # Persist uploaded screenshots/attachments
+    environment:
+      - DATABASE_URL=sqlite:///./qa.db
+      - JWT_SECRET=qa_platform_production_secure_key_change_me_in_prod
+      - UPLOAD_DIR=static/uploads
+      - CORS_ORIGINS=["*"]
+    restart: always
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"  # Serve the integrated frontend + backend reverse proxy on Port 80
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  sqlite-data:
+  uploads-data:

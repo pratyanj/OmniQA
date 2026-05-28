@@ -11,3 +11,7 @@ venv/
 .venv_test/
 frontend/.turbo/
 .next/
+
+# Added by code-review-graph
+.code-review-graph/
+
