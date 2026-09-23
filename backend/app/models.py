@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, ForeignKey, Text, DateTime, JSON
+from sqlalchemy import Column, String, Integer, Float, Boolean, ForeignKey, Text, DateTime, JSON
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -135,3 +135,69 @@ class BugHistoryEntry(Base):
     # Relationships
     bug = relationship("Bug", back_populates="history")
     changed_by_user = relationship("User", back_populates="history_entries")
+
+
+# ─── WORKFLOW SYSTEM ──────────────────────────────────────────────────────────
+
+class WorkflowTemplate(Base):
+    __tablename__ = "workflow_templates"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    is_default = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    nodes = relationship("WorkflowNode", back_populates="workflow", cascade="all, delete-orphan")
+    edges = relationship("WorkflowEdge", back_populates="workflow", cascade="all, delete-orphan")
+    project_assignments = relationship("ProjectWorkflow", back_populates="workflow", cascade="all, delete-orphan")
+
+
+class WorkflowNode(Base):
+    __tablename__ = "workflow_nodes"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    workflow_id = Column(String(36), ForeignKey("workflow_templates.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False)
+    color = Column(String(50), nullable=False, default="#2563eb")
+    icon = Column(String(100), nullable=True)
+    position_x = Column(Float, nullable=False, default=0.0)
+    position_y = Column(Float, nullable=False, default=0.0)
+    is_start = Column(Boolean, default=False, nullable=False)
+    is_end = Column(Boolean, default=False, nullable=False)
+
+    # Relationships
+    workflow = relationship("WorkflowTemplate", back_populates="nodes")
+    outgoing_edges = relationship("WorkflowEdge", foreign_keys="WorkflowEdge.source_node_id", back_populates="source_node", cascade="all, delete-orphan")
+    incoming_edges = relationship("WorkflowEdge", foreign_keys="WorkflowEdge.target_node_id", back_populates="target_node")
+
+
+class WorkflowEdge(Base):
+    __tablename__ = "workflow_edges"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    workflow_id = Column(String(36), ForeignKey("workflow_templates.id", ondelete="CASCADE"), nullable=False)
+    source_node_id = Column(String(36), ForeignKey("workflow_nodes.id", ondelete="CASCADE"), nullable=False)
+    target_node_id = Column(String(36), ForeignKey("workflow_nodes.id", ondelete="CASCADE"), nullable=False)
+    label = Column(String(255), nullable=True)
+    requires_comment = Column(Boolean, default=False, nullable=False)
+    requires_attachment = Column(Boolean, default=False, nullable=False)
+
+    # Relationships
+    workflow = relationship("WorkflowTemplate", back_populates="edges")
+    source_node = relationship("WorkflowNode", foreign_keys=[source_node_id], back_populates="outgoing_edges")
+    target_node = relationship("WorkflowNode", foreign_keys=[target_node_id], back_populates="incoming_edges")
+
+
+class ProjectWorkflow(Base):
+    __tablename__ = "project_workflows"
+
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    workflow_id = Column(String(36), ForeignKey("workflow_templates.id", ondelete="CASCADE"), nullable=False)
+    assigned_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    workflow = relationship("WorkflowTemplate", back_populates="project_assignments")
+

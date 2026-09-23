@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import engine, Base
-from app.routes import auth, projects, bugs, attachments
+from app.routes import auth, projects, bugs, attachments, workflows, recordings, replay
 
 # Automatically create database tables on application startup
 Base.metadata.create_all(bind=engine)
@@ -21,8 +21,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Guarantee the local static upload directory exists on disk
+# Guarantee the local static upload and recordings directories exist on disk
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+os.makedirs(os.path.join("static", "recordings"), exist_ok=True)
 
 # Mount the static folder directory to serve clipboard screenshots and files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -32,6 +33,11 @@ app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(projects.router, prefix=settings.API_V1_STR)
 app.include_router(bugs.router, prefix=settings.API_V1_STR)
 app.include_router(attachments.router, prefix=settings.API_V1_STR)
+app.include_router(workflows.router, prefix=settings.API_V1_STR)
+app.include_router(recordings.router, prefix=settings.API_V1_STR)
+app.include_router(replay.router, prefix=settings.API_V1_STR)
+
+
 
 @app.get("/")
 def read_root():

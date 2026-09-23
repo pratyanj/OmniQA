@@ -11,6 +11,8 @@ import BugEditPage from '@/pages/BugEditPage';
 import VerificationQueuePage from '@/pages/VerificationQueuePage';
 import ReportsPage from '@/pages/ReportsPage';
 import AdminPage from '@/pages/AdminPage';
+import WorkflowsPage from '@/pages/WorkflowsPage';
+import WorkflowBuilderPage from '@/pages/WorkflowBuilderPage';
 
 export const router = createBrowserRouter([
   {
@@ -32,6 +34,10 @@ export const router = createBrowserRouter([
       { path: 'verify',       element: <VerificationQueuePage /> },
       { path: 'reports',      element: <ReportsPage /> },
       { path: 'admin',        element: <AdminPage /> },
+      { path: 'workflows',    element: <WorkflowsPage /> },
+      { path: 'workflows/new',element: <WorkflowBuilderPage /> },
+      { path: 'workflows/:id/edit', element: <WorkflowBuilderPage /> },
+
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },

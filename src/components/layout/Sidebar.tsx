@@ -2,6 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FolderOpen, Bug, CheckSquare,
   BarChart3, Settings, ChevronLeft, ChevronRight, Code2,
+  GitBranch,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useUIStore } from '@/stores/uiStore';
@@ -10,12 +11,13 @@ import { useBugStore } from '@/stores/bugStore';
 import { ROLE_LABELS } from '@/types';
 
 const NAV_ITEMS = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/projects',  icon: FolderOpen,      label: 'Projects' },
-  { to: '/bugs',      icon: Bug,             label: 'Bug Tracker' },
-  { to: '/verify',    icon: CheckSquare,     label: 'Verify Queue', badge: true },
-  { to: '/reports',   icon: BarChart3,       label: 'Reports' },
-  { to: '/admin',     icon: Settings,        label: 'Admin', roles: ['admin', 'manager'] },
+  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/projects',   icon: FolderOpen,      label: 'Projects' },
+  { to: '/bugs',       icon: Bug,             label: 'Bug Tracker' },
+  { to: '/verify',     icon: CheckSquare,     label: 'Verify Queue', badge: true },
+  { to: '/reports',    icon: BarChart3,       label: 'Reports' },
+  { to: '/workflows',  icon: GitBranch,       label: 'Workflows',   roles: ['admin', 'manager'] },
+  { to: '/admin',      icon: Settings,        label: 'Admin',       roles: ['admin', 'manager'] },
 ];
 
 export default function Sidebar() {

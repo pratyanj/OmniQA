@@ -285,3 +285,44 @@ export const BUG_STATUS_FLOW: Record<BugStatus, BugStatus[]> = {
 export const STATUS_LIFECYCLE: BugStatus[] = [
   'new', 'triaged', 'assigned', 'in_development', 'ready_for_qa', 'verified', 'closed',
 ];
+
+// ─── Workflow Types ────────────────────────────────────────────────────────────
+
+export interface WorkflowNode {
+  id: string;
+  workflow_id: string;
+  name: string;
+  color: string;
+  icon?: string;
+  position_x: number;
+  position_y: number;
+  is_start: boolean;
+  is_end: boolean;
+  /** client-only temp id used before save */
+  temp_id?: string;
+}
+
+export interface WorkflowEdge {
+  id: string;
+  workflow_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  label?: string;
+  requires_comment: boolean;
+  requires_attachment: boolean;
+  /** client-only temp references */
+  source_temp_id?: string;
+  target_temp_id?: string;
+}
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
+

@@ -4,10 +4,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.auth import get_current_user
+from app.auth import get_current_user, require_roles
 from app import models, schemas
+from app.routes.workflows import validate_transition
 
 router = APIRouter(prefix="/bugs", tags=["Bugs"])
+
 
 def map_bug_to_response(b: models.Bug) -> dict:
     # Map attachments list
@@ -346,6 +348,21 @@ def change_status(id: str, newStatus: str = Query(...), note: Optional[str] = Qu
     if not bug:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bug not found")
 
+    # ── Workflow validation ────────────────────────────────────────────────
+    is_valid, req_comment, req_attachment = validate_transition(
+        db, bug.project_id, bug.status, newStatus
+    )
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid transition: {bug.status.upper()} → {newStatus.upper()} is not allowed by this project's workflow.",
+        )
+    if req_comment and not note:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A comment / note is required for this transition.",
+        )
+
     old_status = bug.status
     bug.status = newStatus
     
@@ -363,6 +380,7 @@ def change_status(id: str, newStatus: str = Query(...), note: Optional[str] = Qu
     db.commit()
     db.refresh(bug)
     return map_bug_to_response(bug)
+
 
 @router.post("/{id}/comments", response_model=schemas.CommentResponse)
 def add_comment(id: str, payload: schemas.CommentCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -387,7 +405,7 @@ def add_comment(id: str, payload: schemas.CommentCreate, db: Session = Depends(g
     return comment
 
 @router.post("/{id}/verify", response_model=schemas.BugResponse)
-def verify_bug(id: str, payload: schemas.BugVerifyRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def verify_bug(id: str, payload: schemas.BugVerifyRequest, db: Session = Depends(get_db), current_user: models.User = Depends(require_roles(["qa_tester", "qa_lead", "admin"]))):
     bug = db.query(models.Bug).filter(models.Bug.id == id).first()
     if not bug:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bug not found")
@@ -414,7 +432,7 @@ def verify_bug(id: str, payload: schemas.BugVerifyRequest, db: Session = Depends
     return map_bug_to_response(bug)
 
 @router.post("/{id}/reopen", response_model=schemas.BugResponse)
-def reopen_bug(id: str, payload: schemas.BugReopenRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def reopen_bug(id: str, payload: schemas.BugReopenRequest, db: Session = Depends(get_db), current_user: models.User = Depends(require_roles(["qa_tester", "qa_lead", "admin"]))):
     bug = db.query(models.Bug).filter(models.Bug.id == id).first()
     if not bug:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bug not found")

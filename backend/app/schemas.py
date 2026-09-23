@@ -192,3 +192,85 @@ class BugVerifyRequest(BaseModel):
 
 class BugReopenRequest(BaseModel):
     reason: str
+
+
+# ─── WORKFLOW SCHEMAS ──────────────────────────────────────────────────────────
+
+class WorkflowNodeCreate(BaseModel):
+    name: str
+    color: str = "#2563eb"
+    icon: Optional[str] = None
+    position_x: float = 0.0
+    position_y: float = 0.0
+    is_start: bool = False
+    is_end: bool = False
+    # Client-side temp id so edges can reference nodes before DB assigns real ids
+    temp_id: Optional[str] = None
+
+class WorkflowNodeResponse(BaseModel):
+    id: str
+    workflow_id: str
+    name: str
+    color: str
+    icon: Optional[str] = None
+    position_x: float
+    position_y: float
+    is_start: bool
+    is_end: bool
+
+    class Config:
+        from_attributes = True
+
+class WorkflowEdgeCreate(BaseModel):
+    source_node_id: str   # may be temp_id during create, resolved server-side
+    target_node_id: str
+    label: Optional[str] = None
+    requires_comment: bool = False
+    requires_attachment: bool = False
+    # temp_id references for client-side resolution
+    source_temp_id: Optional[str] = None
+    target_temp_id: Optional[str] = None
+
+class WorkflowEdgeResponse(BaseModel):
+    id: str
+    workflow_id: str
+    source_node_id: str
+    target_node_id: str
+    label: Optional[str] = None
+    requires_comment: bool
+    requires_attachment: bool
+
+    class Config:
+        from_attributes = True
+
+class WorkflowCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    is_default: bool = False
+    nodes: List[WorkflowNodeCreate] = []
+    edges: List[WorkflowEdgeCreate] = []
+
+class WorkflowUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_default: Optional[bool] = None
+    nodes: Optional[List[WorkflowNodeCreate]] = None
+    edges: Optional[List[WorkflowEdgeCreate]] = None
+
+class WorkflowResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+    nodes: List[WorkflowNodeResponse] = []
+    edges: List[WorkflowEdgeResponse] = []
+
+    class Config:
+        from_attributes = True
+
+class WorkflowAssign(BaseModel):
+    workflow_id: str
+
+
