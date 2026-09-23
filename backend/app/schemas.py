@@ -274,3 +274,71 @@ class WorkflowAssign(BaseModel):
     workflow_id: str
 
 
+# ─── RECORDING SCHEMAS ─────────────────────────────────────────────────────────
+
+class RecordingStartRequest(BaseModel):
+    bug_id: str
+
+class RecordingStopRequest(BaseModel):
+    actions: List[dict] = []
+    duration_ms: Optional[int] = None
+
+class RecordingResponse(BaseModel):
+    id: str
+    bug_id: str
+    user_id: str
+    video_path: Optional[str] = None
+    actions_json: List[dict] = []
+    generated_script_py: Optional[str] = None
+    generated_script_ts: Optional[str] = None
+    duration_ms: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ─── REPLAY RUN SCHEMAS ────────────────────────────────────────────────────────
+
+class ReplayRunResponse(BaseModel):
+    id: str
+    recording_id: str
+    status: str
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    log: Optional[str] = None
+    screenshot_path: Optional[str] = None
+    step_failed: Optional[str] = None
+    triggered_by: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CodegenLaunchRequest(BaseModel):
+    bug_id: str
+    target_url: str
+    language: str = "python"
+
+
+class ScriptUpdateRequest(BaseModel):
+    generated_script_py: Optional[str] = None
+    generated_script_ts: Optional[str] = None
+
+
+class CustomScriptCreateRequest(BaseModel):
+    bug_id: str
+    generated_script_py: Optional[str] = None
+    generated_script_ts: Optional[str] = None
+
+
+class ShareWithDevRequest(BaseModel):
+    message: Optional[str] = None
+
+
+class ReplayTriggerRequest(BaseModel):
+    headed: bool = False
+    language: str = "python"
+
+

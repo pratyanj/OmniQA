@@ -326,3 +326,46 @@ export interface WorkflowTemplate {
   edges: WorkflowEdge[];
 }
 
+// ─── Recording Types ───────────────────────────────────────────────────────────
+
+export interface RecordedAction {
+  timestamp: number;
+  type: string;
+  selector?: string;
+  url?: string;
+  value?: string;
+  key?: string;
+  x?: number;
+  y?: number;
+  ms?: number;
+}
+
+export interface BugRecording {
+  id: string;
+  bug_id: string;
+  user_id: string;
+  video_path?: string;
+  actions_json: RecordedAction[];
+  generated_script_py?: string;
+  generated_script_ts?: string;
+  duration_ms?: number;
+  created_at: string;
+}
+
+// ─── Replay Types ──────────────────────────────────────────────────────────────
+
+export type ReplayStatus = 'pending' | 'running' | 'passed' | 'failed' | 'error';
+
+export interface ReplayRun {
+  id: string;
+  recording_id: string;
+  status: ReplayStatus;
+  started_at?: string;
+  completed_at?: string;
+  log?: string;
+  screenshot_path?: string;
+  step_failed?: string;
+  triggered_by?: string;
+  created_at: string;
+}
+

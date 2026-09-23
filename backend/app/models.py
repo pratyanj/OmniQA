@@ -201,3 +201,44 @@ class ProjectWorkflow(Base):
     # Relationships
     workflow = relationship("WorkflowTemplate", back_populates="project_assignments")
 
+
+# ─── SESSION RECORDER ─────────────────────────────────────────────────────────
+
+class BugRecording(Base):
+    __tablename__ = "bug_recordings"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    bug_id = Column(String(36), ForeignKey("bugs.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    video_path = Column(Text, nullable=True)          # path relative to static/
+    actions_json = Column(JSON, nullable=False, default=list)  # rrweb event log
+    generated_script_py = Column(Text, nullable=True)
+    generated_script_ts = Column(Text, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    bug = relationship("Bug")
+    recorder = relationship("User")
+    replay_runs = relationship("ReplayRun", back_populates="recording", cascade="all, delete-orphan")
+
+
+# ─── REPLAY RUNNER ────────────────────────────────────────────────────────────
+
+class ReplayRun(Base):
+    __tablename__ = "replay_runs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    recording_id = Column(String(36), ForeignKey("bug_recordings.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String(50), nullable=False, default="pending")  # pending|running|passed|failed|error
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    log = Column(Text, nullable=True)
+    screenshot_path = Column(Text, nullable=True)
+    step_failed = Column(String(255), nullable=True)  # which step caused the failure
+    triggered_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    recording = relationship("BugRecording", back_populates="replay_runs")
+

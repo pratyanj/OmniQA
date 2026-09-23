@@ -21,9 +21,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Guarantee the local static upload and recordings directories exist on disk
+# Guarantee the local static upload directory exists on disk
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-os.makedirs(os.path.join("static", "recordings"), exist_ok=True)
+os.makedirs("static/recordings", exist_ok=True)
 
 # Mount the static folder directory to serve clipboard screenshots and files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -36,7 +36,6 @@ app.include_router(attachments.router, prefix=settings.API_V1_STR)
 app.include_router(workflows.router, prefix=settings.API_V1_STR)
 app.include_router(recordings.router, prefix=settings.API_V1_STR)
 app.include_router(replay.router, prefix=settings.API_V1_STR)
-
 
 
 @app.get("/")

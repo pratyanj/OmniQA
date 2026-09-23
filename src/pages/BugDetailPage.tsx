@@ -1,10 +1,11 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ArrowLeft, Edit2, ChevronRight, AlertTriangle,
   Monitor, User, CheckCircle2, RotateCcw, X,
   Cpu, Link2, GitBranch, Hash, Clock, Tag, MessageSquare,
-  Paperclip, FileText,
+  Paperclip, FileText, Video, Play, Copy, Download, List, Film, Code2, History,
+  Share2, Globe, Plus, Save, Terminal, ExternalLink,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useBugStore } from '@/stores/bugStore';
@@ -13,11 +14,20 @@ import { useProjectStore } from '@/stores/projectStore';
 import { StatusBadge, SeverityBadge, PriorityBadge } from '@/components/bugs/Badges';
 import StatusStepper from '@/components/bugs/StatusStepper';
 import ActivityTimeline from '@/components/bugs/ActivityTimeline';
+import RecorderWidget from '@/components/bugs/RecorderWidget';
+import ReplayHistoryPanel from '@/components/bugs/ReplayHistoryPanel';
+import type { BugRecording } from '@/types';
 import {
   STATUS_LABELS, BUG_TYPE_LABELS, PLATFORM_LABELS,
   ENVIRONMENT_LABELS, BUG_STATUS_FLOW, PRIORITY_LABELS,
 } from '@/types';
 import { formatDateTime, timeAgo } from '@/utils/dateUtils';
+
+const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1';
+function authHeaders() {
+  const token = localStorage.getItem('qa_token');
+  return { Authorization: `Bearer ${token || ''}` };
+}
 
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ComponentType<{ size?: number; className?: string }>; children: React.ReactNode }) {
   return (
@@ -44,7 +54,7 @@ function Field({ label, value, mono }: { label: string; value?: string | React.R
 export default function BugDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getBugById, changeStatus, verifyBug, reopenBug, assignBug } = useBugStore();
+  const { getBugById, changeStatus, verifyBug, reopenBug, assignBug, addComment } = useBugStore();
   const { currentUser, getUserById, users } = useUserStore();
   const { getProjectById } = useProjectStore();
 
@@ -55,6 +65,51 @@ export default function BugDetailPage() {
   const [verifyBuild, setVerifyBuild] = useState('');
   const [reopenReason, setReopenReason] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'details' | 'recording'>('details');
+  const [recordings, setRecordings] = useState<BugRecording[]>([]);
+  const [selectedRecording, setSelectedRecording] = useState<BugRecording | null>(null);
+  const [scriptTab, setScriptTab] = useState<'python' | 'typescript'>('python');
+
+  // Playwright Codegen & Automation Studio States
+  const [codegenModal, setCodegenModal] = useState(false);
+  const [codegenUrl, setCodegenUrl] = useState('');
+  const [codegenLang, setCodegenLang] = useState<'python' | 'javascript'>('python');
+  const [codegenLaunching, setCodegenLaunching] = useState(false);
+  const [codegenCliCmd, setCodegenCliCmd] = useState('');
+
+  const [customScriptModal, setCustomScriptModal] = useState(false);
+  const [customScriptPy, setCustomScriptPy] = useState('');
+  const [customScriptTs, setCustomScriptTs] = useState('');
+
+  const [shareModal, setShareModal] = useState(false);
+  const [shareMsg, setShareMsg] = useState('');
+  const [sharing, setSharing] = useState(false);
+
+  const [isEditingScript, setIsEditingScript] = useState(false);
+  const [editedScript, setEditedScript] = useState('');
+
+  // Load recordings when switching to recording tab
+  useEffect(() => {
+    if (activeTab !== 'recording' || !id) return;
+    fetch(`${API}/bugs/${id}/recordings`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : [])
+      .then((data: BugRecording[]) => {
+        setRecordings(data);
+        if (data.length > 0 && !selectedRecording) setSelectedRecording(data[0]);
+      })
+      .catch(() => {});
+  }, [activeTab, id]);
+
+  // Sync edited script text when selected recording or tab changes
+  useEffect(() => {
+    if (!selectedRecording) return;
+    setEditedScript(
+      scriptTab === 'python'
+        ? selectedRecording.generated_script_py || ''
+        : selectedRecording.generated_script_ts || ''
+    );
+    setIsEditingScript(false);
+  }, [selectedRecording, scriptTab]);
 
   const bug = getBugById(id!);
   if (!bug) return (
@@ -91,6 +146,118 @@ export default function BugDetailPage() {
     toast.error('Bug reopened');
     setReopenModal(false);
   }
+
+  const handleLaunchCodegen = async () => {
+    const target = codegenUrl.trim() || bug.deviceInfo.url || 'http://localhost:5173';
+    setCodegenLaunching(true);
+    try {
+      const res = await fetch(`${API}/recordings/launch-codegen`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bug_id: bug.id,
+          target_url: target,
+          language: codegenLang,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || 'Failed to launch codegen');
+      const data = await res.json();
+      setCodegenCliCmd(data.cli_command);
+      toast.success('Playwright browser session started! Record your steps and close the browser.');
+      // Refresh recordings list
+      fetch(`${API}/bugs/${id}/recordings`, { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : [])
+        .then((recs: BugRecording[]) => {
+          setRecordings(recs);
+          if (recs.length > 0) setSelectedRecording(recs[0]);
+        });
+    } catch (e: any) {
+      toast.error(e.message || 'Could not launch codegen');
+    } finally {
+      setCodegenLaunching(false);
+    }
+  };
+
+  const handleSaveCustomScript = async () => {
+    if (!customScriptPy.trim() && !customScriptTs.trim()) {
+      toast.error('Please enter script content');
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/recordings/custom-script`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bug_id: bug.id,
+          generated_script_py: customScriptPy || undefined,
+          generated_script_ts: customScriptTs || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to save script');
+      const newRec: BugRecording = await res.json();
+      setRecordings(prev => [newRec, ...prev]);
+      setSelectedRecording(newRec);
+      setCustomScriptModal(false);
+      setCustomScriptPy('');
+      setCustomScriptTs('');
+      toast.success('Playwright script linked to bug!');
+    } catch (e: any) {
+      toast.error(e.message || 'Error saving script');
+    }
+  };
+
+  const handleSaveEditedScript = async () => {
+    if (!selectedRecording) return;
+    try {
+      const payload = scriptTab === 'python'
+        ? { generated_script_py: editedScript }
+        : { generated_script_ts: editedScript };
+      const res = await fetch(`${API}/recordings/${selectedRecording.id}/script`, {
+        method: 'PUT',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('Failed to update script');
+      const updatedRec: BugRecording = await res.json();
+      setSelectedRecording(updatedRec);
+      setRecordings(prev => prev.map(r => r.id === updatedRec.id ? updatedRec : r));
+      setIsEditingScript(false);
+      toast.success('Script saved!');
+    } catch (e: any) {
+      toast.error(e.message || 'Error updating script');
+    }
+  };
+
+  const handleShareWithDev = async () => {
+    if (!selectedRecording) return;
+    setSharing(true);
+    try {
+      const res = await fetch(`${API}/recordings/${selectedRecording.id}/share-to-dev`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: shareMsg }),
+      });
+      if (!res.ok) throw new Error('Failed to share recording');
+
+      if (currentUser) {
+        const devName = assignee ? assignee.name : 'the developer';
+        addComment(
+          bug.id,
+          `🤖 Playwright automation test script shared with ${devName}.\n${shareMsg || ''}`,
+          currentUser.id
+        );
+      }
+
+      setShareModal(false);
+      setShareMsg('');
+      toast.success('Playwright test script shared with developer!');
+    } catch (e: any) {
+      toast.error(e.message || 'Error sharing test script');
+    } finally {
+      setSharing(false);
+    }
+  };
+
 
   return (
     <div className="space-y-5">
@@ -161,9 +328,341 @@ export default function BugDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left column — 2/3 */}
-        <div className="lg:col-span-2 space-y-5">
+      {/* Tab bar */}
+      <div className="flex gap-1 border-b border-slate-700/50">
+        {(
+          [['details', 'Details', FileText], ['recording', 'Recording', Video]] as const
+        ).map(([tab, label, Icon]) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab as any)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === tab
+                ? 'border-violet-500 text-violet-300'
+                : 'border-transparent text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <Icon size={14} />
+            {label}
+            {tab === 'recording' && recordings.length > 0 && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-violet-600/20 text-violet-400">{recordings.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Recording tab content */}
+      {activeTab === 'recording' && (
+        <div className="space-y-5">
+          {/* Automation Studio Header Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-violet-950/40 to-slate-900/40 border border-violet-500/20">
+            <div>
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <Terminal size={16} className="text-violet-400" />
+                Playwright Automation Studio
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Record browser actions, generate Playwright tests, and share repeatable scripts with developers
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setCodegenModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold shadow-lg shadow-violet-900/30 transition-all"
+              >
+                <Globe size={13} /> Launch Playwright Recorder
+              </button>
+              <button
+                onClick={() => setCustomScriptModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium transition-colors"
+              >
+                <Plus size={13} /> Import Script
+              </button>
+              {selectedRecording && (
+                <button
+                  onClick={() => setShareModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition-colors"
+                >
+                  <Share2 size={13} /> Share with Dev
+                </button>
+              )}
+            </div>
+          </div>
+
+          {recordings.length === 0 ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Option 1: Playwright Codegen */}
+                <div
+                  onClick={() => setCodegenModal(true)}
+                  className="card p-5 cursor-pointer hover:border-violet-500/50 transition-all group flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="w-10 h-10 rounded-xl bg-violet-600/20 flex items-center justify-center text-violet-400 mb-3 group-hover:scale-105 transition-transform">
+                      <Globe size={20} />
+                    </div>
+                    <h3 className="text-sm font-semibold text-white mb-1">Playwright Codegen Browser</h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Launch an interactive Chromium browser with Playwright Inspector. Record live clicks & inputs against any target app URL.
+                    </p>
+                  </div>
+                  <button className="mt-4 w-full py-2 rounded-lg bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/30 text-xs font-semibold transition-colors">
+                    Launch Recorder Browser
+                  </button>
+                </div>
+
+                {/* Option 2: Import Custom Script */}
+                <div
+                  onClick={() => setCustomScriptModal(true)}
+                  className="card p-5 cursor-pointer hover:border-violet-500/50 transition-all group flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center text-blue-400 mb-3 group-hover:scale-105 transition-transform">
+                      <Code2 size={20} />
+                    </div>
+                    <h3 className="text-sm font-semibold text-white mb-1">Import / Paste Script</h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Already wrote a Playwright test (.py or .spec.ts) locally? Paste it here to link it to this bug and run automated rechecks.
+                    </p>
+                  </div>
+                  <button className="mt-4 w-full py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-semibold transition-colors">
+                    Paste Playwright Script
+                  </button>
+                </div>
+
+                {/* Option 3: In-page Session Recorder */}
+                <div className="card p-5 flex flex-col justify-between">
+                  <div>
+                    <div className="w-10 h-10 rounded-xl bg-red-600/20 flex items-center justify-center text-red-400 mb-3">
+                      <Video size={20} />
+                    </div>
+                    <h3 className="text-sm font-semibold text-white mb-1">In-Page Screen & DOM Recorder</h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Capture actions right in this browser tab using the floating recording widget at the bottom right.
+                    </p>
+                  </div>
+                  <p className="mt-4 text-center text-xs text-slate-500 font-medium">
+                    ↘ See floating widget at bottom right
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Recording selector tabs */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {recordings.map((r, i) => (
+                  <button
+                    key={r.id}
+                    onClick={() => setSelectedRecording(r)}
+                    className={`flex items-center gap-2 flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                      selectedRecording?.id === r.id
+                        ? 'bg-violet-600/20 text-violet-300 border border-violet-500/40 shadow-sm'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-500'
+                    }`}
+                  >
+                    <Terminal size={12} />
+                    Test #{i + 1}
+                    {r.actions_json.length > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700 text-slate-300 font-mono">
+                        {r.actions_json.length}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {selectedRecording && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  {/* Left: video + timeline */}
+                  <div className="space-y-4">
+                    {/* Video Player */}
+                    {selectedRecording.video_path ? (
+                      <div className="card overflow-hidden">
+                        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-700/50 text-sm font-semibold text-slate-200">
+                          <Film size={14} className="text-violet-400" /> Video Recording
+                        </div>
+                        <video
+                          controls
+                          className="w-full max-h-64 bg-black"
+                          src={`${API.replace('/api/v1', '')}/static/${selectedRecording.video_path}`}
+                        />
+                      </div>
+                    ) : (
+                      <div className="card p-5 text-center text-slate-400 text-xs">
+                        <Terminal size={22} className="mx-auto mb-2 opacity-50 text-violet-400" />
+                        <span className="font-semibold text-white">Playwright Automation Script</span>
+                        <p className="text-slate-500 mt-1">Ready for automated recheck & test execution</p>
+                      </div>
+                    )}
+
+                    {/* Action Timeline */}
+                    <div className="card p-4">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-200 mb-3">
+                        <List size={14} className="text-violet-400" /> Recorded Steps & Actions
+                        <span className="ml-auto text-xs text-slate-500">{selectedRecording.actions_json.length} captured</span>
+                      </div>
+                      <div className="overflow-auto max-h-48">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-slate-500 border-b border-slate-700/50">
+                              <th className="text-left py-1.5 pr-3">Time</th>
+                              <th className="text-left py-1.5 pr-3">Action</th>
+                              <th className="text-left py-1.5">Selector / URL</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedRecording.actions_json.map((a, i) => (
+                              <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                                <td className="py-1 pr-3 text-slate-500 font-mono">
+                                  {String(Math.floor((a.timestamp ?? 0) / 60000)).padStart(2,'0')}:{String(Math.floor(((a.timestamp ?? 0) % 60000) / 1000)).padStart(2,'0')}
+                                </td>
+                                <td className="py-1 pr-3 text-violet-300 font-semibold capitalize">{a.type}</td>
+                                <td className="py-1 text-slate-400 font-mono truncate max-w-[180px]">{a.selector || a.url || a.value || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {selectedRecording.actions_json.length === 0 && (
+                          <div className="text-center text-slate-600 py-4">Direct Playwright script linked (no DOM events)</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Playwright script + replay */}
+                  <div className="space-y-4">
+                    {/* Script viewer & editor */}
+                    <div className="card">
+                      <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-700/50 flex-wrap">
+                        <Code2 size={14} className="text-violet-400" />
+                        <span className="text-sm font-semibold text-slate-200 flex-1">Playwright Script</span>
+                        <div className="flex gap-1">
+                          {(['python', 'typescript'] as const).map(lang => (
+                            <button
+                              key={lang}
+                              onClick={() => setScriptTab(lang)}
+                              className={`text-xs px-2.5 py-1 rounded-lg transition-colors capitalize ${
+                                scriptTab === lang
+                                  ? 'bg-violet-600/20 text-violet-300'
+                                  : 'text-slate-500 hover:text-slate-300'
+                              }`}
+                            >
+                              {lang === 'python' ? '.py' : '.spec.ts'}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Edit / Save toggle */}
+                        {isEditingScript ? (
+                          <button
+                            onClick={handleSaveEditedScript}
+                            className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-green-600/20 text-green-300 border border-green-500/40 hover:bg-green-600/30 transition-colors"
+                          >
+                            <Save size={12} /> Save
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setIsEditingScript(true)}
+                            className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-500 transition-colors"
+                          >
+                            <Edit2 size={11} /> Edit
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            const script = scriptTab === 'python' ? selectedRecording.generated_script_py : selectedRecording.generated_script_ts;
+                            navigator.clipboard.writeText(script || '').then(() => toast.success('Script copied!'));
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-white transition-colors"
+                          title="Copy Script"
+                        >
+                          <Copy size={13} />
+                        </button>
+                        <a
+                          href={`${API}/recordings/${selectedRecording.id}/script/${scriptTab}`}
+                          download
+                          className="p-1.5 text-slate-500 hover:text-white transition-colors"
+                          title="Download Script"
+                        >
+                          <Download size={13} />
+                        </a>
+                        <button
+                          onClick={() => setShareModal(true)}
+                          className="p-1.5 text-emerald-400 hover:text-emerald-300 transition-colors"
+                          title="Share with Developer"
+                        >
+                          <Share2 size={13} />
+                        </button>
+                      </div>
+
+                      {/* Script content or editor */}
+                      {isEditingScript ? (
+                        <div className="p-3 space-y-2 bg-slate-950">
+                          <textarea
+                            className="w-full text-xs font-mono bg-slate-900 border border-slate-700 rounded-lg p-3 text-slate-200 min-h-[220px] focus:outline-none focus:border-violet-500"
+                            value={editedScript}
+                            onChange={e => setEditedScript(e.target.value)}
+                          />
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => {
+                                setIsEditingScript(false);
+                                setEditedScript(scriptTab === 'python' ? (selectedRecording.generated_script_py || '') : (selectedRecording.generated_script_ts || ''));
+                              }}
+                              className="btn-ghost btn-sm text-xs"
+                            >
+                              Cancel
+                            </button>
+                            <button onClick={handleSaveEditedScript} className="btn-primary btn-sm text-xs">
+                              <Save size={12} /> Save Script
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <pre className="p-4 text-xs font-mono text-slate-300 overflow-auto max-h-64 bg-slate-950/50 leading-relaxed">
+                          {(scriptTab === 'python'
+                            ? selectedRecording.generated_script_py
+                            : selectedRecording.generated_script_ts
+                          ) || '# No script generated yet'}
+                        </pre>
+                      )}
+
+                      {/* Quick local execution CLI snippet */}
+                      <div className="px-4 py-2 bg-slate-900/60 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+                        <span className="font-mono truncate">
+                          python recording_{selectedRecording.id.substring(0, 8)}.py
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`python recording_${selectedRecording.id.substring(0, 8)}.py`);
+                            toast.success('Run command copied!');
+                          }}
+                          className="text-violet-400 hover:underline flex items-center gap-1 flex-shrink-0 ml-2"
+                        >
+                          <Copy size={10} /> Copy CLI
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Replay History Runner */}
+                    <div className="card p-4">
+                      <ReplayHistoryPanel recordingId={selectedRecording.id} />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Details tab content */}
+      {activeTab === 'details' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Left column — 2/3 */}
+          <div className="lg:col-span-2 space-y-5">
           {/* Description */}
           {bug.description && (
             <Section title="Description" icon={MessageSquare}>
@@ -388,6 +887,26 @@ export default function BugDetailPage() {
           )}
         </div>
       </div>
+    )}
+
+      {/* end details tab */}
+
+      {/* Floating Recorder Widget */}
+      <RecorderWidget
+        bugId={bug.id}
+        onRecordingDone={recId => {
+          fetch(`${API}/recordings/${recId}`, { headers: authHeaders() })
+            .then(r => r.ok ? r.json() : null)
+            .then((rec: BugRecording | null) => {
+              if (rec) {
+                setRecordings(prev => [rec, ...prev.filter(r => r.id !== rec.id)]);
+                setSelectedRecording(rec);
+                setActiveTab('recording');
+              }
+            })
+            .catch(() => {});
+        }}
+      />
 
       {/* Verify Modal */}
       {verifyModal && (
@@ -470,6 +989,224 @@ export default function BugDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Playwright Codegen Launcher Modal */}
+      {codegenModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="card w-full max-w-lg p-6 space-y-5 shadow-2xl border-violet-500/30">
+            <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
+              <div className="flex items-center gap-2">
+                <Globe size={18} className="text-violet-400" />
+                <h3 className="text-base font-bold text-white">Playwright Codegen Browser</h3>
+              </div>
+              <button onClick={() => setCodegenModal(false)} className="btn-ghost btn-icon"><X size={14} /></button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Launches an interactive Chromium browser with Playwright Inspector. Record clicks, typing, and navigation on your application to automatically generate an automated test script.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Target Application URL *</label>
+                <input
+                  className="input w-full font-mono text-xs"
+                  placeholder="e.g. http://localhost:5173 or https://staging.myapp.com"
+                  value={codegenUrl || bug.deviceInfo.url || 'http://localhost:5173'}
+                  onChange={e => setCodegenUrl(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Generated Language Format</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCodegenLang('python')}
+                    className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-colors ${
+                      codegenLang === 'python'
+                        ? 'bg-violet-600/20 text-violet-300 border-violet-500/50'
+                        : 'bg-slate-800 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    🐍 Python (Playwright Sync)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCodegenLang('javascript')}
+                    className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-colors ${
+                      codegenLang === 'javascript'
+                        ? 'bg-violet-600/20 text-violet-300 border-violet-500/50'
+                        : 'bg-slate-800 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    ⚡ TypeScript / JS (@playwright/test)
+                  </button>
+                </div>
+              </div>
+
+              {/* Terminal CLI Command alternative */}
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="flex items-center gap-1 font-medium"><Terminal size={12} /> Or run locally via CLI:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = codegenUrl || bug.deviceInfo.url || 'http://localhost:5173';
+                      const cmd = `playwright codegen ${url} --target ${codegenLang} -o test_${bug.bugId}.py`;
+                      navigator.clipboard.writeText(cmd);
+                      toast.success('CLI command copied!');
+                    }}
+                    className="text-violet-400 hover:underline flex items-center gap-1 text-[11px]"
+                  >
+                    <Copy size={11} /> Copy
+                  </button>
+                </div>
+                <code className="text-[11px] font-mono text-slate-300 block truncate">
+                  playwright codegen {codegenUrl || bug.deviceInfo.url || 'http://localhost:5173'} --target {codegenLang} -o test_{bug.bugId}.py
+                </code>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2 border-t border-slate-800">
+              <button onClick={() => setCodegenModal(false)} className="btn-secondary btn-sm">Close</button>
+              <button
+                onClick={handleLaunchCodegen}
+                disabled={codegenLaunching}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold shadow-lg shadow-violet-900/40 transition-all disabled:opacity-50"
+              >
+                <Globe size={13} />
+                {codegenLaunching ? 'Launching Browser…' : 'Launch Browser Recorder'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import / Custom Script Modal */}
+      {customScriptModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="card w-full max-w-xl p-6 space-y-4 shadow-2xl border-blue-500/30">
+            <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
+              <div className="flex items-center gap-2">
+                <Code2 size={18} className="text-blue-400" />
+                <h3 className="text-base font-bold text-white">Import Playwright Test Script</h3>
+              </div>
+              <button onClick={() => setCustomScriptModal(false)} className="btn-ghost btn-icon"><X size={14} /></button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Paste your Playwright script code below. This test will be attached to <strong>{bug.bugId}</strong> so QA and developers can run automated repeats to reproduce and verify fixes.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Python Playwright Script (.py)</label>
+                <textarea
+                  className="w-full font-mono text-xs p-3 bg-slate-950 border border-slate-700 rounded-xl text-slate-200 min-h-[140px] focus:outline-none focus:border-blue-500"
+                  placeholder="from playwright.sync_api import sync_playwright&#10;&#10;def run():&#10;    with sync_playwright() as p:&#10;        browser = p.chromium.launch()&#10;        ..."
+                  value={customScriptPy}
+                  onChange={e => setCustomScriptPy(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">TypeScript / JavaScript Script (.spec.ts) [Optional]</label>
+                <textarea
+                  className="w-full font-mono text-xs p-3 bg-slate-950 border border-slate-700 rounded-xl text-slate-200 min-h-[100px] focus:outline-none focus:border-blue-500"
+                  placeholder="import { test, expect } from '@playwright/test';&#10;&#10;test('reproduce bug', async ({ page }) => { ... });"
+                  value={customScriptTs}
+                  onChange={e => setCustomScriptTs(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2 border-t border-slate-800">
+              <button onClick={() => setCustomScriptModal(false)} className="btn-secondary btn-sm">Cancel</button>
+              <button
+                onClick={handleSaveCustomScript}
+                disabled={!customScriptPy.trim() && !customScriptTs.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg shadow-blue-900/40 transition-all disabled:opacity-40"
+              >
+                <Save size={13} /> Save & Link Script
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share with Developer Modal */}
+      {shareModal && selectedRecording && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="card w-full max-w-lg p-6 space-y-4 shadow-2xl border-emerald-500/30">
+            <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
+              <div className="flex items-center gap-2">
+                <Share2 size={18} className="text-emerald-400" />
+                <h3 className="text-base font-bold text-white">Share Playwright Test with Developer</h3>
+              </div>
+              <button onClick={() => setShareModal(false)} className="btn-ghost btn-icon"><X size={14} /></button>
+            </div>
+
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-emerald-600/30 text-emerald-300 font-bold flex items-center justify-center text-xs">
+                {assignee ? assignee.initials : 'DEV'}
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-white">
+                  Recipient: {assignee ? assignee.name : 'Unassigned (Will post to bug activity)'}
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  Dev can replay this script repeatedly to reproduce the bug until it is fixed!
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Message / Testing Instructions</label>
+                <textarea
+                  className="w-full text-xs p-3 bg-slate-950 border border-slate-700 rounded-xl text-slate-200 min-h-[80px] focus:outline-none focus:border-emerald-500"
+                  placeholder="e.g. Please use this automated Playwright test to reproduce the issue. Run it locally or in OmniQA until the test passes!"
+                  value={shareMsg}
+                  onChange={e => setShareMsg(e.target.value)}
+                />
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="font-mono text-emerald-400">Terminal Command for Dev:</span>
+                  <button
+                    onClick={() => {
+                      const cmd = `curl -H "Authorization: Bearer ${localStorage.getItem('qa_token') || ''}" ${API}/recordings/${selectedRecording.id}/script/python > reproduce_${bug.bugId}.py && python reproduce_${bug.bugId}.py`;
+                      navigator.clipboard.writeText(cmd);
+                      toast.success('Reproduction command copied!');
+                    }}
+                    className="text-emerald-400 hover:underline flex items-center gap-1 text-[11px]"
+                  >
+                    <Copy size={11} /> Copy Command
+                  </button>
+                </div>
+                <pre className="text-[11px] font-mono text-slate-300 overflow-x-auto whitespace-pre-wrap">
+                  python recording_{selectedRecording.id.substring(0, 8)}.py
+                </pre>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2 border-t border-slate-800">
+              <button onClick={() => setShareModal(false)} className="btn-secondary btn-sm">Cancel</button>
+              <button
+                onClick={handleShareWithDev}
+                disabled={sharing}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-900/40 transition-all disabled:opacity-50"
+              >
+                <Share2 size={13} />
+                {sharing ? 'Posting to Comments…' : 'Share & Post to Bug Comments'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
