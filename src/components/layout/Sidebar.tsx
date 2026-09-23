@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FolderOpen, Bug, CheckSquare,
   BarChart3, Settings, ChevronLeft, ChevronRight, Code2,
-  GitBranch,
+  LayoutGrid, GitBranch,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useUIStore } from '@/stores/uiStore';
@@ -14,9 +14,10 @@ const NAV_ITEMS = [
   { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/projects',   icon: FolderOpen,      label: 'Projects' },
   { to: '/bugs',       icon: Bug,             label: 'Bug Tracker' },
+  { to: '/kanban',     icon: LayoutGrid,      label: 'Kanban Board' },
   { to: '/verify',     icon: CheckSquare,     label: 'Verify Queue', badge: true },
   { to: '/reports',    icon: BarChart3,       label: 'Reports' },
-  { to: '/workflows',  icon: GitBranch,       label: 'Workflows',   roles: ['admin', 'manager'] },
+  { to: '/workflows',  icon: GitBranch,       label: 'Workflows',   roles: ['admin', 'manager', 'qa_lead'] },
   { to: '/admin',      icon: Settings,        label: 'Admin',       roles: ['admin', 'manager'] },
 ];
 
